@@ -1,6 +1,11 @@
 ---
 title: Animal Classifier
+format:
+  html:
+    code-fold: true
+jupyter: python3
 ---
-```python
-print("Hello World")
+
+```{python}
+print("Ready for the code!")
 ```
