@@ -2,46 +2,28 @@ project:
   type: website
   
 website: 
-  page-navigation: true
-  title: "Making sharable documents with Quarto" 
-  site-url: "https://openscapes.github.io/quarto-website-tutorial" 
-  repo-url: https://github.com/openscapes/quarto-website-tutorial 
-  repo-actions: [edit, issue]
-  
-  page-footer:
-    right: "This page is built with ❤️ and [Quarto](https://quarto.org/)."
-    left: "&copy; CC-By Openscapes, 2024"
+  page-navigation: false
+  title: "CraftreeSolitary's Blog" 
+  site-url: "https://CraftreeSolitary.github.io/myBlog/" 
+  repo-url: https://github.com/CraftreeSolitary/myBlog
+  repo-actions: [issue]
     
   sidebar:
-    logo: "images/openscapes_hex.png"
+    logo: "images/memoji-profile.png"
     pinned: true
     align: center
     tools: 
-      - icon: globe
-        href: https://openscapes.org
-        text: "Openscapes.org"
       - icon: github
-        href: https://github.com/openscapes/quarto-website-tutorial
-        text: "Quarto website tutorial"
-      - icon: twitter
-        href: https://twitter.com/openscapes
-        text: "Openscapes Twitter"         
+        href: https://github.com/CraftreeSolitary
+        text: "My Github"      
 
     style: "docked"
     search: true
     collapse-level: 1
     contents:
       - href: index.qmd
-        text: Welcome
-      - explore.qmd
-      - section: quarto-workflows/index.qmd
-        contents: 
-          - quarto-workflows/browser.md
-          - quarto-workflows/rstudio.qmd
-          - quarto-workflows/jupyter.md 
-      - learning-more.qmd
-      - href: transition-from-rmarkdown.qmd
-        text: Transition from Rmd
+        text: About Me
+      - animal-classifier-ML.qmd
 
 
 format:
