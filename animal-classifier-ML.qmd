@@ -6,6 +6,6 @@ format:
 jupyter: python3
 ---
 
-```{python}
+```python
 print("Ready for the code!")
 ```
