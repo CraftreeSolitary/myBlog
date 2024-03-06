@@ -462,7 +462,7 @@
     "href": "animal-classifier-ML.html",
     "title": "Animal Classifier",
     "section": "",
-    "text": "Code\nprint(\"Ready for the code!\")\n\n\nReady for the code!",
+    "text": "print(\"Ready for the code!\")",
     "crumbs": [
       "Animal Classifier"
     ]
