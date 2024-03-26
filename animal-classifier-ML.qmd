@@ -2,10 +2,462 @@
 title: Animal Classifier
 format:
   html:
-    code-fold: true
+    code-fold: false
 jupyter: python3
 ---
 
+---
+title: Animal Classifier
+format:
+  html:
+    code-fold: false
+jupyter: python3
+---
+
+## Getting the Dataset and Organizing Folders
+In this code cell, I first configure the environment to download a specific dataset from Kaggle for further analysis in my Quarto blog. I define the target dataset using the `competition_name` variable and specify the path to a local file containing my Kaggle API credentials (`kaggle_creds_path`). To interact with the Kaggle platform, I install the required `kaggle` library using `pip`.  Since this code will be embedded in a Quarto blog, I leverage the notebook execution syntax (`!`) to perform certain actions.  Following that, I ensure proper credential storage by creating a hidden directory (`~/.kaggle`) in the user's home directory and securely copying the credentials file there. Finally, I initiate the download of the animal image dataset using the Kaggle library and create a directory (`kaggle_data`) to store the downloaded data. 
+
 ```python
-print("Ready for the code!")
+competition_name = "iamsouravbanerjee/animal-image-dataset-90-different-animals"
+
+kaggle_creds_path = "./kaggle.json"
+
+! pip install kaggle --quiet
+
+
+! mkdir ~/.kaggle
+! cp /content/kaggle.json ~/.kaggle/
+! chmod 600 ~/.kaggle/kaggle.json
+
+! kaggle datasets download -d {competition_name}
+
+! mkdir kaggle_data
+```
+
+```python
+! unzip animal-image-dataset-90-different-animals.zip -d kaggle_data
+```
+Leveraging `os` and shutil, I define paths for the original and desired structures. First, I create the main directory (onevrest) to house the reorganized data.  A special folder (badger) is then copied entirely using shutil.copytree. For remaining folders, a target directory (f2) is created. I iterate through the original data, excluding the special folder. Individual files within valid folders are copied to f2 using `shutil.copy2`.
+
+```python
+import os
+import shutil
+
+original_parent_dir = "./kaggle_data/animals/animals"
+new_parent_dir = "./onevrest"
+target_folder = "f2"
+special_folder = "badger"
+
+os.makedirs(new_parent_dir, exist_ok=True)
+
+# Copy the special folder as-is
+shutil.copytree(os.path.join(original_parent_dir, special_folder),
+                os.path.join(new_parent_dir, special_folder))
+
+# Process the other folders efficiently
+target_dir = os.path.join(new_parent_dir, target_folder)
+os.makedirs(target_dir, exist_ok=True)
+
+for dir in os.listdir(original_parent_dir):
+    dir_path = os.path.join(original_parent_dir, dir)
+    if os.path.isdir(dir_path) and dir != special_folder:
+        for file in os.listdir(dir_path):
+            file_src = os.path.join(dir_path, file)
+            file_dest = os.path.join(target_dir, file)
+            shutil.copy2(file_src, file_dest)
+
+        # Do NOT remove the source directories
+```
+In this code block, we tackle the reorganization of the downloaded animal image dataset. We rely on Python's `os` and `shutil` modules for file system operations.  First, we establish paths for both the original data's structure (`original_parent_dir`) and the desired new directory layout (`new_parent_dir`) with five subfolders (d1 to d5). We ensure the existence of `new_parent_dir` to avoid errors.  To effectively distribute the original 90 folders, we create a sorted list and calculate the number of folders each subfolder in the new structure should hold (`folders_per_group`).  A handy `copy_files` function is defined to efficiently move files between directories. The core logic involves iterating through the original folders. For each one, we calculate the corresponding destination subfolder (d1 to d5) based on the iteration index. We then construct the new folder's path dynamically and copy the contents of the current folder using our `copy_files` function.
+```python
+import os
+import shutil
+
+# Original parent directory containing the 90 folders
+original_parent_dir = "/kaggle/input/animal-image-dataset-90-different-animals/animals/animals"
+
+# New parent directory where the 5 folders (d1 to d5) will be created
+new_parent_dir = "./fiveclass"
+
+# Make sure the new parent directory exists
+os.makedirs(new_parent_dir, exist_ok=True)
+
+# Get a sorted list of all folders in the original parent directory
+# Assuming folder names allow them to be correctly sorted to reflect the desired order
+folders = sorted([f for f in os.listdir(original_parent_dir) if os.path.isdir(os.path.join(original_parent_dir, f))])
+
+# Calculate the number of folders to distribute into each of the 5 new folders
+folders_per_group = len(folders) // 5
+
+# Function to copy files from source to destination
+def copy_files(src_dir, dest_dir):
+    os.makedirs(dest_dir, exist_ok=True)
+    for file in os.listdir(src_dir):
+        shutil.copy2(os.path.join(src_dir, file), os.path.join(dest_dir, file))
+
+# Iterate through each of the original folders and copy its contents to the correct new folder
+for i, folder in enumerate(folders):
+    # Determine the index for the new folder (d1 to d5)
+    new_folder_index = i // folders_per_group + 1
+    if new_folder_index > 5:  # Ensure we don't go beyond d5
+        new_folder_index = 5
+
+    # Construct the new folder name and path
+    new_folder_name = f"d{new_folder_index}"
+    new_folder_path = os.path.join(new_parent_dir, new_folder_name)
+
+    # Copy the contents of the current folder to the new folder
+    current_folder_path = os.path.join(original_parent_dir, folder)
+    copy_files(current_folder_path, new_folder_path)
+```
+## Binary Classification
+This code lays the foundation for training an image classifier using a technique called K-fold cross-validation.  First, it imports necessary libraries for deep learning with PyTorch, data manipulation, and K-fold functionality from scikit-learn. Next, it defines a series of transformations to be applied to the images during training. These transformations resize, randomly flip, convert to tensors, and normalize the pixel values. The code then establishes pointers to two folders likely containing the training data (`data_dir` and `data_dir2`). Finally, it sets up K-fold cross-validation using scikit-learn. The KFold object will split the data into three parts (folds) for training and validation, ensuring a more robust evaluation of the machine learning model's performance.  
+```python
+import os
+import torch
+import torchvision.transforms as transforms
+from torchvision import datasets, models
+from torch.utils.data import DataLoader, random_split
+import torch.nn as nn
+import torch.optim as optim
+```
+```python
+# Transformations
+transform = transforms.Compose([
+    transforms.RandomResizedCrop(224),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# Load dataset
+data_dir = 'onevrest'
+data_dir2='fiveclass'
+```
+```python
+from sklearn.model_selection import KFold
+kfold = KFold(n_splits=3, shuffle=True, random_state=42)
+```
+- - -
+This code implements K-fold cross-validation to train and evaluate an image classifier in PyTorch. After setting hyperparameters and defining the overall validation strategy, it loads the entire image dataset and applies pre-processing transformations. The core loop iterates through each fold defined by K-fold. Within each fold, the data is split into training and testing subsets. Separate data loaders are created for efficient batch processing during training and evaluation. A pre-trained model (ConvNext Tiny) is re-initialized for each fold to prevent overfitting, and its final layer is adjusted to match the number of classes in the dataset. The model is then trained on the designated training set using an Adam optimizer and cross-entropy loss function. During evaluation on the testing set, the model's predictions are compared to true labels to calculate accuracy and a confusion matrix. This process is repeated for all folds. Finally, the code computes and prints the overall average accuracy and an average confusion matrix across all folds, providing a more comprehensive understanding of the model's performance and potential biases.  
+```python
+from sklearn.model_selection import KFold
+from torch.utils.data import DataLoader, Subset
+from torchvision import models
+from torch import nn, optim
+import torch
+from sklearn.metrics import confusion_matrix
+import numpy as np
+
+num_classes = 2 
+num_epochs = 2
+batch_size = 32
+
+n_splits = 3  # Number of folds
+
+full_dataset = datasets.ImageFolder(root=data_dir, transform=transform)
+kfold = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+all_acc = []
+all_conf_matrices = []
+
+for fold, (train_idx, test_idx) in enumerate(kfold.split(full_dataset)):
+    # Splitting datasets per fold
+    train_subset = Subset(full_dataset, train_idx)
+    test_subset = Subset(full_dataset, test_idx)
+
+    # Data loaders for the current fold
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False)
+
+    # Reinitialize model and optimizer
+    model = models.convnext_tiny(weights=None)
+    num_ftrs = model.classifier[2].in_features
+    model.classifier[2] = nn.Linear(num_ftrs, num_classes)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
+
+    # Training loop for current fold
+    for epoch in range(num_epochs):
+        model.train()
+        for i, (inputs, targets) in enumerate(train_loader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+
+    # Evaluation for current fold
+    model.eval()
+    y_true = []
+    y_pred = []
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(preds.cpu().numpy())
+
+    acc = (np.array(y_true) == np.array(y_pred)).mean()
+    all_acc.append(acc)
+    conf_matrix = confusion_matrix(y_true, y_pred)
+    all_conf_matrices.append(conf_matrix)
+    print(f'Fold {fold+1}, Test Accuracy: {acc:.4f}')
+
+# Average accuracy and confusion matrix
+average_acc = np.mean(all_acc)
+average_conf_matrix = np.mean(all_conf_matrices, axis=0)
+print(f'Average Test Accuracy: {average_acc:.4f}')
+print('Average Confusion Matrix:')
+print(average_conf_matrix)
+```
+```
+Fold 1, Test Accuracy: 0.9900
+Fold 2, Test Accuracy: 0.9883
+Fold 3, Test Accuracy: 0.9883
+Average Test Accuracy: 0.9889
+Average Confusion Matrix:
+[[   0.           20.        ]
+ [   0.         1779.66666667]]
+```
+## Five-Class Classification
+This code trains and evaluates an image classifier for a 5-class problem using K-fold cross-validation with PyTorch. It begins by showcasing the entire dataset using print(full_dataset), which might reveal details about the image classes and their distribution. K-fold cross-validation is then configured with three folds (n_splits=3) for a more robust evaluation. The core loop iterates through each fold, splitting the data into training and testing subsets using Subset. Separate data loaders are created for efficient handling of batches during training and evaluation.
+
+Within each fold, a pre-trained ConvNext Tiny model with weights loaded from ImageNet (weights='IMAGENET1K_V1') is used as a starting point. The final layer is adjusted to match the specific number of classes in the current dataset. The model is then trained on the designated training set with an Adam optimizer and cross-entropy loss function. During evaluation on the testing set, the model's predictions are compared to true labels to calculate accuracy and a confusion matrix.
+
+This process repeats for all folds. Finally, the code computes and prints the overall average accuracy and an average confusion matrix, providing a more comprehensive assessment of the model's performance across the entire dataset.
+```python
+from sklearn.model_selection import KFold
+from torch.utils.data import DataLoader, Subset
+from torchvision import models
+from torch import nn, optim
+import torch
+from sklearn.metrics import confusion_matrix
+import numpy as np
+
+num_classes = 5  # Adjust this based on your dataset
+num_epochs = 3
+batch_size = 32
+
+n_splits = 3  # Number of folds
+
+full_dataset = datasets.ImageFolder(root=data_dir2, transform=transform)
+print(full_dataset)
+
+kfold = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+all_acc = []
+all_conf_matrices = []
+
+for fold, (train_idx, test_idx) in enumerate(kfold.split(full_dataset)):
+    # Splitting datasets per fold
+    train_subset = Subset(full_dataset, train_idx)
+    test_subset = Subset(full_dataset, test_idx)
+
+    # Data loaders for the current fold
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False)
+
+    # Reinitialize model and optimizer
+    model = models.convnext_tiny(weights='IMAGENET1K_V1')
+    num_ftrs = model.classifier[2].in_features
+    model.classifier[2] = nn.Linear(num_ftrs, num_classes)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
+
+    # Training loop for current fold
+    for epoch in range(num_epochs):
+        model.train()
+        for i, (inputs, targets) in enumerate(train_loader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+
+    # Evaluation for current fold
+    model.eval()
+    y_true = []
+    y_pred = []
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(preds.cpu().numpy())
+
+    acc = (np.array(y_true) == np.array(y_pred)).mean()
+    all_acc.append(acc)
+    conf_matrix = confusion_matrix(y_true, y_pred)
+    all_conf_matrices.append(conf_matrix)
+    print(f'Fold {fold+1}, Test Accuracy: {acc:.4f}')
+
+# Average accuracy and confusion matrix
+average_acc = np.mean(all_acc)
+average_conf_matrix = np.mean(all_conf_matrices, axis=0)
+print(f'Average Test Accuracy: {average_acc:.4f}')
+print('Average Confusion Matrix:')
+print(average_conf_matrix)
+```
+```
+Dataset ImageFolder
+    Number of datapoints: 5400
+    Root location: fiveclass
+    StandardTransform
+Transform: Compose(
+               RandomResizedCrop(size=(224, 224), scale=(0.08, 1.0), ratio=(0.75, 1.3333), interpolation=bilinear, antialias=warn)
+               RandomHorizontalFlip(p=0.5)
+               ToTensor()
+               Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+           )
+Downloading: "https://download.pytorch.org/models/convnext_tiny-983f1562.pth" to /root/.cache/torch/hub/checkpoints/convnext_tiny-983f1562.pth
+100%|██████████| 109M/109M [00:07<00:00, 16.1MB/s] 
+Fold 1, Test Accuracy: 0.1950
+```
+This code defines a complex custom convolutional neural network (CNN) architecture named `ComplexCustomCNN` built using PyTorch. It inherits from the `nn.Module` class to create a trainable neural network. Upon initialization, it accepts the number of classes (`num_classes`) to predict, which determines the final output layer's size. The network primarily relies on convolutional layers for feature extraction. These layers take an input image, apply filters (kernels) to learn patterns, and produce feature maps. Batch normalization layers are strategically placed after each convolutional layer to improve training stability. A pooling layer downsamples the feature maps after each convolutional block, reducing complexity and spatial dimensions. The network then transitions to fully-connected layers, where the learned features are processed for classification. The first fully-connected layer is adjusted based on the assumed input image size (224x224 in this case). Dropout layers with a 50% chance of dropping neurons are included after the first two fully-connected layers to prevent overfitting during training. Finally, the code shows an example of creating an instance of the `ComplexCustomCNN` model with a user-defined number of classes, and then it prints the model architecture for reference. This customizable CNN architecture can be a powerful tool for various image classification tasks, with the flexibility to adapt the number of layers, channels, and hyperparameters to fit the specific requirements of your dataset. 
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class ComplexCustomCNN(nn.Module):
+    def __init__(self, num_classes=10):
+        super(ComplexCustomCNN, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
+        self.conv3 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(256)
+        self.conv4 = nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1)
+        self.bn4 = nn.BatchNorm2d(512)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.fc1 = nn.Linear(512 * 28 * 28, 1024)  # Adjusted for 224x224 input images
+        self.bn_fc1 = nn.BatchNorm1d(1024)
+        self.fc2 = nn.Linear(1024, 512)
+        self.bn_fc2 = nn.BatchNorm1d(512)
+        self.fc3 = nn.Linear(512, num_classes)
+        self.dropout = nn.Dropout(0.5)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.bn1(self.conv1(x))))
+        x = self.pool(F.relu(self.bn2(self.conv2(x))))
+        x = self.pool(F.relu(self.bn3(self.conv3(x))))
+        x = self.pool(F.relu(self.bn4(self.conv4(x))))
+        x = x.view(-1, 512 * 28 * 28)  # Adjusted for 224x224 input images
+        x = self.dropout(F.relu(self.bn_fc1(self.fc1(x))))
+        x = self.dropout(F.relu(self.bn_fc2(self.fc2(x))))
+        x = self.fc3(x)
+        return x
+
+# Example usage
+num_classes = 10  # Adjust based on your dataset
+model = ComplexCustomCNN(num_classes=num_classes)
+print(model)
+```
+```
+ComplexCustomCNN(
+  (conv1): Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (bn1): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (conv2): Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (bn2): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (conv3): Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (bn3): BatchNorm2d(256, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (conv4): Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (bn4): BatchNorm2d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (pool): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
+  (fc1): Linear(in_features=401408, out_features=1024, bias=True)
+  (bn_fc1): BatchNorm1d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (fc2): Linear(in_features=1024, out_features=512, bias=True)
+  (bn_fc2): BatchNorm1d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+  (fc3): Linear(in_features=512, out_features=10, bias=True)
+  (dropout): Dropout(p=0.5, inplace=False)
+)
+```
+```python
+from sklearn.model_selection import KFold
+from torch.utils.data import DataLoader, Subset
+from torchvision import datasets, transforms
+from torch import nn, optim
+import torch
+from sklearn.metrics import confusion_matrix
+import numpy as np
+
+
+
+# Define the transformation for the dataset
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+num_epochs = 10
+batch_size = 32
+n_splits = 3
+num_classes = 5
+
+full_dataset = datasets.ImageFolder(root=data_dir, transform=transform)
+kfold = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+all_acc = []
+all_conf_matrices = []
+
+for fold, (train_idx, test_idx) in enumerate(kfold.split(full_dataset)):
+    train_subset = Subset(full_dataset, train_idx)
+    test_subset = Subset(full_dataset, test_idx)
+
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False)
+
+    model = ComplexCustomCNN(num_classes=num_classes)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
+
+    for epoch in range(num_epochs):
+        model.train()
+        for i, (inputs, targets) in enumerate(train_loader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+
+    model.eval()
+    y_true = []
+    y_pred = []
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(preds.cpu().numpy())
+
+    acc = (np.array(y_true) == np.array(y_pred)).mean()
+    all_acc.append(acc)
+    conf_matrix = confusion_matrix(y_true, y_pred)
+    all_conf_matrices.append(conf_matrix)
+    print(f'Fold {fold+1}, Test Accuracy: {acc:.4f}')
+
+average_acc = np.mean(all_acc)
+average_conf_matrix = np.mean(all_conf_matrices, axis=0)
+print(f'Average Test Accuracy: {average_acc:.4f}')
+print('Average Confusion Matrix:')
+print(average_conf_matrix)
 ```
